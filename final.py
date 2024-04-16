@@ -374,7 +374,7 @@ def get_book_data(url):
         book_data = [title, ISBN, author, publish, date, bookImglink]
         return book_data
     else:
-        return 'fail'
+        return 'fail',res.status_code
 
 
 #GetPageData
@@ -434,7 +434,7 @@ def page_crawel(page_url):
             getData_loading_bar(2,cnt+1)     #間隔兩秒請求一次以免因為過量請求而被伺服器拒絕
             BookData = get_book_data(link)  #利用自訂函式求得此單本書籍的基本資料
             
-            if(BookData!='fail'):   #書本連結存取正常
+            if(BookData[0]!='fail'):   #書本連結存取正常
                 if BookData[0] == '未找到資料':     #網路異常導致抓取錯誤，放進失敗陣列，之後反覆檢查
                     print(ANSI_string('資料未正確抓取',color='red'))
                     Failed_books_links.append(link)
@@ -449,7 +449,7 @@ def page_crawel(page_url):
                     Successful_books_links.append(link)
                     BookData = []
             else:   #書籍連結存取被拒，放進失敗陣列等待重複檢查跟請求
-                print(ANSI_string(f'{BookData}',color='red'))
+                print(ANSI_string(f'連接失敗，錯誤代碼{BookData[1]}',color='red'))
                 Failed_books_links.append(link)
             cnt=cnt+1
         df = pd.DataFrame({'書名': titles, '書本封面':bookImglinks, 'ISBN': ISBNs, '作者':authors, '出版社':publishs,'出版日期':dates, '書本連結': Successful_books_links})
@@ -469,7 +469,7 @@ def page_crawel(page_url):
                 getData_loading_bar(2,fail_book_cnt)
                 fail_book_cnt = fail_book_cnt + 1
                 BookData = get_book_data(link)
-                if BookData != 'fail':
+                if BookData[0] != 'fail':
                     if BookData[0] == '未找到資料':
                         print(ANSI_string('資料未正確抓取',color='red'))
                     else:
@@ -483,7 +483,7 @@ def page_crawel(page_url):
                         Successful_books_links.append(link)
                         Failed_books_links.remove(link)  # 從失敗連結串列中移除成功處理的連結
                 else:
-                    print(ANSI_string(f'連結失敗：{link}',color='red'))
+                    print(ANSI_string(f'連結失敗：{link}，錯誤代碼{BookData[1]}',color='red'))
             fail_cnt = fail_cnt+1
             print("<====================================================>")
         print("此頁資料全部抓取完畢!")
@@ -491,21 +491,7 @@ def page_crawel(page_url):
         df = pd.DataFrame({'書名': titles, '書本封面':bookImglinks, 'ISBN': ISBNs, '作者':authors, '出版社':publishs,'出版日期':dates, '書本連結': Successful_books_links})
         return df
     else:
-        print(ANSI_string("連接失敗",color='red'))
-
-#main
-# 资源文件目录访问
-def source_path(relative_path):
-    # 是否Bundle Resource
-    if getattr(sys, 'frozen', False):
-        base_path = sys._MEIPASS
-    else:
-        base_path = os.path.abspath(".")
-    return os.path.join(base_path, relative_path)
-
-# 修改当前工作目录，使得资源文件可以被正确访问
-cd = source_path('')
-os.chdir(cd)
+        print(ANSI_string(f"連接失敗，錯誤代碼{res.status_code}",color='red'))
 
 def generate_author_url(keyword):   #輸入作者後產生作者頁面之連結
     link = "https://search.books.com.tw/search/query/cat/1/v/1/adv_author/1/key/" + keyword
@@ -553,15 +539,9 @@ if(res.status_code == requests.codes.ok):
     if not os.path.exists(csv_directory):
         os.makedirs(csv_directory)
     file_path = os.path.join(csv_directory, keyword + ".csv")
-    print(f'csv路徑: {file_path}')
     df.to_csv(file_path,index=False,encoding='utf-8')
     EstablishFullDatabase(df)
     
     end = input('輸入任何字元結束程式')
 else:
-    print('存取被拒')
-
-#pyi-makespec -F -i favicon.ico final.py
-#pyinstaller final.spec
-#('SECRET.json','.')
-#dist/final.exe
+    print(f'失敗，錯誤代碼{res.status_code}')
