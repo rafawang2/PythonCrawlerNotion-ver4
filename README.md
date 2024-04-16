@@ -16,8 +16,8 @@
 
 7. 根據final.spec文件打包包含檔案成exe檔: ```pyinstaller final.spec```
 
-## 打包方法
-我已經把打包該用的指令都放在Makefile
+## 打包方法(makefile)
+我已經把打包該用的指令都放在Makefile，若有安裝make的程式(我是使用mnGW裡面的make套件)，可以使用此Makefile來自動打包成exe
 
 `只需要在目前資料夾開啟cmd，並輸入make指令，就可以自動包裝成exe`
     
