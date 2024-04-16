@@ -6,6 +6,7 @@ import os
 import time
 from lxml import etree
 import re
+import msvcrt
 
 # #打包文件用
 # #资源文件目录访问
@@ -542,6 +543,9 @@ if(res.status_code == requests.codes.ok):
     df.to_csv(file_path,index=False,encoding='utf-8')
     EstablishFullDatabase(df)
     
-    end = input('輸入任何字元結束程式')
+    print("Press any key to exit...")
+    msvcrt.getch()
 else:
     print(f'失敗，錯誤代碼{res.status_code}')
+    print("Press any key to exit...")
+    msvcrt.getch()
