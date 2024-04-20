@@ -540,9 +540,17 @@ if(res.status_code == requests.codes.ok):
     if not os.path.exists(csv_directory):
         os.makedirs(csv_directory)
     file_path = os.path.join(csv_directory, keyword + ".csv")
-    df.to_csv(file_path,index=False,encoding='utf-8')
-    EstablishFullDatabase(df)
+    df.to_csv(file_path,index=False,encoding='utf-8-sig')
     
+    if(NOTION_TOKEN != "" or DATABASE_ID != ""):
+        upload = input('是否要將資料匯入Notion(y/n)\n')
+        if(upload=='y'):
+            EstablishFullDatabase(df)
+        else:
+            print('未啟用自動上傳，可以使用Notion的匯入csv功能建立database')
+    else:
+        print('未偵測到SECRET.json裡的Notion id')   
+        
     print("Press any key to exit...")
     msvcrt.getch()
 else:
