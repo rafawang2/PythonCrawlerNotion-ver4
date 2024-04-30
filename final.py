@@ -91,64 +91,100 @@ def waiting_loading_bar(duration):
             time.sleep((duration / total_ticks))
     sys.stdout.write('\n')
 
-
 NOTION_TOKEN = ""
 DATABASE_ID = ""
 #NotionAPI
 
-def set_working_directory():
-    # 獲取執行檔案的路徑
-    exe_path = sys.argv[0]
-    # 轉換為絕對路徑
-    exe_dir = os.path.abspath(os.path.dirname(exe_path))
-    # 設置工作目錄
-    os.chdir(exe_dir)
 set_working_directory()
 secret_json_path = os.getcwd() + '\\SECRET.json'
 file = open(secret_json_path)
 data = json.load(file)
 
 #integration
-NOTION_TOKEN = data['id']
+NOTION_TOKEN = data['notion_id']
 
 #Database
-DATABASE_ID = data['database']
+PAGE_ID = data['page_id']
 
 file.close()
 
-headers_NotionAPI = {
-    "Authorization": "Bearer " + NOTION_TOKEN,
-    "Content-Type": "application/json",
-    "Notion-Version": "2022-06-28"
-}
+class NotionClient():
+    def __init__(self):
+        self.notion_key = NOTION_TOKEN
+        self.default_headers = {'Authorization': f"Bearer {self.notion_key}",
+                                'Content-Type': 'application/json', 'Notion-Version': '2022-06-28'}
+        self.session = requests.Session()
+        self.session.headers.update(self.default_headers)    
 
-def get_pages(num_pages=None):
-    """
-    If num_pages is None, get all pages, otherwise just the defined number.
-    """
-    url = f"https://api.notion.com/v1/databases/{DATABASE_ID}/query"
+    def create_database(self, data):
+        url = "https://api.notion.com/v1/databases"
+        response = self.session.post(url, json=data)
+        return response.json()
 
-    get_all = num_pages is None
-    page_size = 1000 if get_all else num_pages
+    def create_page(self, data, databaseID):
+        url = "https://api.notion.com/v1/pages"
+        payload = {"parent": {"database_id": databaseID}, "properties": data}
+        response = requests.post(url, headers=self.default_headers, json=payload)
+        return response.json(),response.status_code
 
-    payload = {"page_size": page_size}
-    response = requests.post(url, json=payload, headers=headers_NotionAPI)
-    
-    data = response.json()
-
-    # Comment this out to dump all data to a file
-    # import json
-    # with open('db.json', 'w', encoding='utf8') as f:
-    #    json.dump(data, f, ensure_ascii=False, indent=4)
-
-    results = data["results"]
-    while data["has_more"] and get_all:
-        payload = {"page_size": page_size, "start_cursor": data["next_cursor"]}
-        url = f"https://api.notion.com/v1/databases/{DATABASE_ID}/query"
-        response = requests.post(url, json=payload, headers=headers_NotionAPI)
-        data = response.json()
-        results.extend(data["results"])
-    return results,data
+def CreateDatabase(page_id,author):
+    notion_client = NotionClient()
+    print("建立database中，請等待")
+    waiting_loading_bar(1)
+    # Create a database with some properties
+    data = {
+        "parent": {
+            "type": "page_id",
+            "page_id": page_id
+        },
+        "icon": {
+            "type": "emoji",
+                "emoji": "📖"
+        },
+        "title": [
+            {
+                "type": "text",
+                "text": {
+                    "content": f"{author}",
+                    "link": None
+                }
+            }
+        ],
+        "properties": {
+            "書名": {
+                "title": {}
+            },
+            "書本封面": {
+                 "files": {}
+            },
+            "書本連結": {
+                 "url": {}
+            },
+            "ISBN": {
+                "rich_text": {}
+            },
+            "作者": {
+                "rich_text": {}
+            },   
+            "出版社": {
+                "rich_text": {}
+            },
+            "出版日期": {
+                "date": {}
+            }    
+        }
+    }
+    catches_create_response = notion_client.create_database(data)
+    json_str = json.dumps(catches_create_response, indent=2)
+    # # 寫入到文件
+    # with open('catches_database.json', 'w', encoding='utf-8') as f:
+    #     f.write(json_str)
+    # f.close()
+    #print(json_str)
+    catches_dict = json.loads(json_str)
+    # 從字典中取得 "id" 的值
+    database_ID = catches_dict["id"]
+    return database_ID
 
 def NormalizeDate(date):
     if(not ('/' in date)):
@@ -163,8 +199,8 @@ def NormalizeDate(date):
         day = '0' + day
     return f'{year}-{mon}-{day}'
 
-def create_page(title,book_img,ISBN,author,publish,published_date,book_link): #寫出新的
-    get_pages()
+def CreatePage(databaseID,title=None,book_img=None,ISBN=None,author=None,publish=None,published_date=None,book_link=None):
+    notion_client = NotionClient()
     published_date = NormalizeDate(published_date)
     data = {
         "書名": {"title": [{"text": {"content": title}}]},
@@ -211,48 +247,16 @@ def create_page(title,book_img,ISBN,author,publish,published_date,book_link): #�
         "出版日期": {"date": {"start": published_date, "end": None}},
         "書本連結": {"url":book_link}
     }
-    create_url = "https://api.notion.com/v1/pages"
-
-    payload = {"parent": {"database_id": DATABASE_ID}, "properties": data}
-    res = requests.post(create_url, headers=headers_NotionAPI, json=payload)  #帶著資料前往API，API會將資料(data)丟進Notion
-    if(res.status_code==200):
+    status_code = notion_client.create_page(data = data,databaseID = databaseID)[1]
+    if(status_code==200):
         print(ANSI_string(ANSI_string(f'{title}',bold=True)+'上傳至Notion成功',color='green'))
     else:
         print(ANSI_string(ANSI_string(f'{title}',bold=True)+'上傳至Notion失敗',color='red'))
-    return res
 
-def delete_page(page_id: str):
-    url = f"https://api.notion.com/v1/pages/{page_id}"
-
-    payload = {"archived": True}
-
-    res = requests.patch(url, json=payload, headers=headers_NotionAPI)
-    return res
-
-def delete_All_page():
-    data = get_pages(100)[1]
-    page_cnt = 0
-    while(data['results']!=[]):
-        page_cnt = page_cnt+1 
-        data = get_pages()[1]
-        ids = [result['id'] for result in data['results']]
-        ids_copy = ids.copy()
-        total_items = len(ids)
-        for id in ids_copy:
-            completed_items = total_items - len(ids) +1
-            progress_percentage = int((completed_items / total_items) * 100)
-            progress = '[' + ANSI_string('=',color='cyan') * (progress_percentage // 5) + ANSI_string('=',color='yellow') * (20 - progress_percentage // 5) + ']'
-            sys.stdout.write('\r' + progress + f' 刪除舊資料第{page_cnt}頁，請等待...' + f'({completed_items}/{total_items} , {int((completed_items/total_items)*100)}%)')
-            sys.stdout.flush()
-            delete_page(id)
-            ids.remove(id)
-        sys.stdout.write('\n')
-        ids.clear()
-
-def EstablishFullDatabase(df = pd.DataFrame({'書名': [], '書本封面':[], 'ISBN': [], '作者':[], '出版社':[],'出版日期':[], '書本連結': []})):
-    delete_All_page()
+def EstablishFullDatabase(keyword,df = pd.DataFrame({'書名': [], '書本封面':[], 'ISBN': [], '作者':[], '出版社':[],'出版日期':[], '書本連結': []})):
+    databaseID = CreateDatabase(author=keyword,page_id=PAGE_ID)
     for i in range(len(df['書名'])):
-        create_page(title=df['書名'][i],book_img=df['書本封面'][i],ISBN=df['ISBN'][i],author=df['作者'][i],publish=df['出版社'][i],published_date=df['出版日期'][i],book_link=df['書本連結'][i])
+        CreatePage(databaseID,title=df['書名'][i],book_img=df['書本封面'][i],ISBN=df['ISBN'][i],author=df['作者'][i],publish=df['出版社'][i],published_date=df['出版日期'][i],book_link=df['書本連結'][i])
 
 #GetBookData
 headers = {"user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
@@ -506,54 +510,55 @@ def generate_page_link(keyword,page):
 def generate_book_url(bookID): #利用書本ID產生該書連結
     return "https://www.books.com.tw/products/" + bookID + "?sloc=main"
 
-headers = {"user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+
+if __name__ == "__main__":
+    headers = {"user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
                "AppleWebKit/537.36 (KHTML, like Gecko)"
                "Chrome/63.0.3239.132 Safari/537.36"}
-
-keyword=str(input("請輸入作者:"))
-print("建立連結中...")
-res = requests.get(generate_author_url(keyword),headers=headers)
-set_working_directory()
-# 現在工作目錄已經設置為執行檔案所在的目錄
-print("當前工作目錄:", os.getcwd())
-if(res.status_code == requests.codes.ok):
-    content = res.content.decode()  #解碼網頁
-    html = etree.HTML(content)
-    pages_cnt_list = html.xpath('/html/body/div/div/div/div/div/ul/li/select/option/text()')
-    if(pages_cnt_list!=[]):
-        pages_cnt = re.search(r'\d+', pages_cnt_list[0])
-        pages_cnt = int(pages_cnt.group())
-    else:
-        pages_cnt = 1
-    print(f'共{pages_cnt}頁')
-    df = pd.DataFrame({'書名': [], '書本封面':[], 'ISBN': [], '作者':[], '出版社':[],'出版日期':[], '書本連結': []})
-    for i in range(1,pages_cnt+1):
-        page_link = generate_page_link(keyword,i)
-        print(ANSI_string(f'抓取第{i}頁資料中',bold=True))
-        df = pd.concat([df, page_crawel(page_link)], ignore_index=True, axis=0)
-    
-    print('所有書籍抓取完畢!')
-    print(df)
+    keyword=str(input("請輸入作者:"))
+    print("建立連結中...")
+    res = requests.get(generate_author_url(keyword),headers=headers)
     set_working_directory()
-    current_directory = os.getcwd()
-    csv_directory = os.path.join(current_directory, "作者csv")
-    if not os.path.exists(csv_directory):
-        os.makedirs(csv_directory)
-    file_path = os.path.join(csv_directory, keyword + ".csv")
-    df.to_csv(file_path,index=False,encoding='utf-8-sig')
-    
-    if(NOTION_TOKEN != "" or DATABASE_ID != ""):
-        upload = input('是否要將資料匯入Notion(y/n)\n')
-        if(upload=='y'):
-            EstablishFullDatabase(df)
+    # 現在工作目錄已經設置為執行檔案所在的目錄
+    print("當前工作目錄:", os.getcwd())
+    if(res.status_code == requests.codes.ok):
+        content = res.content.decode()  #解碼網頁
+        html = etree.HTML(content)
+        pages_cnt_list = html.xpath('/html/body/div/div/div/div/div/ul/li/select/option/text()')
+        if(pages_cnt_list!=[]):
+            pages_cnt = re.search(r'\d+', pages_cnt_list[0])
+            pages_cnt = int(pages_cnt.group())
         else:
-            print('未啟用自動上傳，可以使用Notion的匯入csv功能建立database')
-    else:
-        print('未偵測到SECRET.json裡的Notion id')   
+            pages_cnt = 1
+        print(f'共{pages_cnt}頁')
+        df = pd.DataFrame({'書名': [], '書本封面':[], 'ISBN': [], '作者':[], '出版社':[],'出版日期':[], '書本連結': []})
+        for i in range(1,pages_cnt+1):
+            page_link = generate_page_link(keyword,i)
+            print(ANSI_string(f'抓取第{i}頁資料中',bold=True))
+            df = pd.concat([df, page_crawel(page_link)], ignore_index=True, axis=0)
         
-    print("Press any key to exit...")
-    msvcrt.getch()
-else:
-    print(f'失敗，錯誤代碼{res.status_code}')
-    print("Press any key to exit...")
-    msvcrt.getch()
+        print('所有書籍抓取完畢!')
+        print(df)
+        set_working_directory()
+        current_directory = os.getcwd()
+        csv_directory = os.path.join(current_directory, "作者csv")
+        if not os.path.exists(csv_directory):
+            os.makedirs(csv_directory)
+        file_path = os.path.join(csv_directory, keyword + ".csv")
+        df.to_csv(file_path,index=False,encoding='utf-8-sig')
+        
+        if(NOTION_TOKEN != "" or DATABASE_ID != ""):
+            upload = input('是否要將資料匯入Notion(y/n)\n')
+            if(upload=='y'):
+                EstablishFullDatabase(keyword=keyword,df=df)
+            else:
+                print('未啟用自動上傳，可以使用Notion的匯入csv功能建立database')
+        else:
+            print('未偵測到SECRET.json裡的Notion id')   
+            
+        print("Press any key to exit...")
+        msvcrt.getch()
+    else:
+        print(f'失敗，錯誤代碼{res.status_code}')
+        print("Press any key to exit...")
+        msvcrt.getch()
