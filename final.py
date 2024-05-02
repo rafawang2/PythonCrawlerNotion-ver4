@@ -8,19 +8,8 @@ from lxml import etree
 import re
 import msvcrt
 
-# #打包文件用
-# #资源文件目录访问
-# def source_path(relative_path):
-#     # 是否Bundle Resource
-#     if getattr(sys, 'frozen', False):
-#         base_path = sys._MEIPASS
-#     else:
-#         base_path = os.path.abspath(".")
-#     return os.path.join(base_path, relative_path)
- 
-# # 修改当前工作目录，使得资源文件可以被正确访问
-# cd = source_path('')
-# os.chdir(cd)
+NO_secret_json = False  #預設有SECRET.json
+
 def set_working_directory():
     # 獲取執行檔案的路徑
     exe_path = sys.argv[0]
@@ -28,8 +17,6 @@ def set_working_directory():
     exe_dir = os.path.abspath(os.path.dirname(exe_path))
     # 設置工作目錄
     os.chdir(exe_dir)
-
-
 
 #LoadingBar
 def ANSI_string(s, color=None, background=None, bold=False):
@@ -92,21 +79,24 @@ def waiting_loading_bar(duration):
     sys.stdout.write('\n')
 
 NOTION_TOKEN = ""
+PAGE_ID = ""
 DATABASE_ID = ""
 #NotionAPI
 
 set_working_directory()
-secret_json_path = os.getcwd() + '\\SECRET.json'
-file = open(secret_json_path)
-data = json.load(file)
+# 檢查是否存在 SECRET.json 檔案
+secret_json_path = os.path.join(os.getcwd(), 'SECRET.json')
+if os.path.exists(secret_json_path):
+    # 讀取 JSON 檔案
+    with open(secret_json_path) as file:
+        data = json.load(file)
+    # 取得 integration 和 Database 資訊
+    NOTION_TOKEN = data.get('notion_id')
+    PAGE_ID = data.get('page_id')
+    file.close()
+else:
+    NO_secret_json = True
 
-#integration
-NOTION_TOKEN = data['notion_id']
-
-#Database
-PAGE_ID = data['page_id']
-
-file.close()
 
 class NotionClient():
     def __init__(self):
@@ -182,9 +172,22 @@ def CreateDatabase(page_id,author):
     # f.close()
     #print(json_str)
     catches_dict = json.loads(json_str)
-    # 從字典中取得 "id" 的值
-    database_ID = catches_dict["id"]
-    return database_ID
+    create_database_fail_statement = ""
+    if ('status' in json_str) and catches_dict['status']==400:
+        create_database_fail_statement = 'Database建立失敗: 無效的Page ID，請再次確認連結無誤'
+        print(ANSI_string(s=create_database_fail_statement,color='red'))
+        return ""
+    elif('status' in json_str) and catches_dict['status']==401: 
+        create_database_fail_statement = 'Database建立失敗: 無效的整合密碼，請確認頁面是否成功連結到您的integration，或是再次檢查整合密碼是否有誤'
+        print(ANSI_string(s=create_database_fail_statement,color='red'))
+        return ""
+    elif('status' in json_str) and catches_dict['status']==404:
+        create_database_fail_statement = 'Database建立失敗: 此頁面不存在，或是您未成功連結至您的integration上'
+        print(ANSI_string(s=create_database_fail_statement,color='red'))
+        return ""
+    else:
+        database_ID = catches_dict["id"]
+        return database_ID
 
 def NormalizeDate(date):
     if(not ('/' in date)):
@@ -255,8 +258,9 @@ def CreatePage(databaseID,title=None,book_img=None,ISBN=None,author=None,publish
 
 def EstablishFullDatabase(keyword,df = pd.DataFrame({'書名': [], '書本封面':[], 'ISBN': [], '作者':[], '出版社':[],'出版日期':[], '書本連結': []})):
     databaseID = CreateDatabase(author=keyword,page_id=PAGE_ID)
-    for i in range(len(df['書名'])):
-        CreatePage(databaseID,title=df['書名'][i],book_img=df['書本封面'][i],ISBN=df['ISBN'][i],author=df['作者'][i],publish=df['出版社'][i],published_date=df['出版日期'][i],book_link=df['書本連結'][i])
+    if databaseID != "":
+        for i in range(len(df['書名'])):
+            CreatePage(databaseID=databaseID,title=df['書名'][i],book_img=df['書本封面'][i],ISBN=df['ISBN'][i],author=df['作者'][i],publish=df['出版社'][i],published_date=df['出版日期'][i],book_link=df['書本連結'][i])
 
 #GetBookData
 headers = {"user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
@@ -380,7 +384,6 @@ def get_book_data(url):
         return book_data
     else:
         return 'fail',res.status_code
-
 
 #GetPageData
 def generate_author_url(keyword):   #輸入作者後產生作者頁面之連結
@@ -510,7 +513,6 @@ def generate_page_link(keyword,page):
 def generate_book_url(bookID): #利用書本ID產生該書連結
     return "https://www.books.com.tw/products/" + bookID + "?sloc=main"
 
-
 if __name__ == "__main__":
     headers = {"user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
                "AppleWebKit/537.36 (KHTML, like Gecko)"
@@ -547,14 +549,18 @@ if __name__ == "__main__":
         file_path = os.path.join(csv_directory, keyword + ".csv")
         df.to_csv(file_path,index=False,encoding='utf-8-sig')
         
-        if(NOTION_TOKEN != "" or DATABASE_ID != ""):
+        if(NOTION_TOKEN != "" or PAGE_ID != ""):
             upload = input('是否要將資料匯入Notion(y/n)\n')
             if(upload=='y'):
                 EstablishFullDatabase(keyword=keyword,df=df)
             else:
                 print('未啟用自動上傳，可以使用Notion的匯入csv功能建立database')
-        else:
-            print('未偵測到SECRET.json裡的Notion id')   
+        elif(NO_secret_json):
+            print(ANSI_string(s='SECRET.json不存在，請確保有使用SetUp.exe輸入您的整合密碼及Page連結',color='red'))
+        elif(NOTION_TOKEN == ""):
+            print(ANSI_string(s='無效的整合密碼，請確認頁面是否成功連結到您的integration，或是再次檢查整合密碼是否有誤',color='red'))
+        elif(PAGE_ID == ""):
+            print(ANSI_string(s='無效的Page ID，請再次確認連結無誤',color='red'))
             
         print("Press any key to exit...")
         msvcrt.getch()
